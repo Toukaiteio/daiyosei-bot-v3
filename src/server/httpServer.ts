@@ -14,6 +14,7 @@ import type { StorageDatabase } from '../storage/database.js';
 import { OneBotGateway } from '../adapters/onebot/gateway.js';
 import type { CommandRegistry } from '../commands/registry.js';
 import { getRecentLogs } from '../logger.js';
+import { deriveModelsFromLibrary } from '../config/modelDerivation.js';
 
 type ConfigUpdateRequest = {
   bot?: Partial<AppConfig['bot']>;
@@ -24,6 +25,7 @@ type ConfigUpdateRequest = {
   oneBot?: Partial<AppConfig['oneBot']>;
   commands?: Partial<AppConfig['commands']>;
   memes?: Partial<AppConfig['memes']>;
+  pluginConfigs?: Record<string, unknown>;
 };
 
 export class HttpServer {
@@ -61,6 +63,7 @@ export class HttpServer {
         config: options.config,
         logger: options.logger,
         agentRuntime: options.agentRuntime,
+        pluginRegistry: options.plugins,
         storage: options.storage,
         memes: options.memes,
         commandRegistry: options.commandRegistry,
@@ -141,6 +144,7 @@ export class HttpServer {
             effectivePermission: options.config.commands.commandPermissions[cmd.trigger] ?? cmd.defaultPermission,
           })),
         },
+        pluginConfigs: options.config.pluginConfigs,
         paths: {
           pluginsDir: options.config.paths.pluginsDir,
           skillsDir: options.config.paths.skillsDir,
@@ -215,6 +219,7 @@ export class HttpServer {
         providers: (options.config as any).providers || [],
         modelLibrary: (options.config as any).modelLibrary || [],
         roleAssignments: (options.config as any).roleAssignments || {},
+        pluginConfigs: options.config.pluginConfigs,
         models: options.config.models,
         memes: options.config.memes,
         oneBot: {
@@ -243,6 +248,7 @@ export class HttpServer {
         memes: { ...(currentConfig.memes || {}), ...(updates.memes || {}) },
         oneBot: { ...(currentConfig.oneBot || {}), ...(updates.oneBot || {}) },
         commands: { ...(currentConfig.commands || {}), ...(updates.commands || {}) },
+        pluginConfigs: { ...(currentConfig.pluginConfigs || {}), ...(updates.pluginConfigs || {}) },
       };
 
       // Update in-memory config object for immediate feedback
@@ -256,6 +262,14 @@ export class HttpServer {
       if (updates.providers) (options.config as any).providers = updates.providers;
       if (updates.modelLibrary) (options.config as any).modelLibrary = updates.modelLibrary;
       if (updates.roleAssignments) (options.config as any).roleAssignments = updates.roleAssignments;
+      if (updates.providers || updates.modelLibrary || updates.roleAssignments) {
+        options.config.models = deriveModelsFromLibrary({
+          providers: (options.config as any).providers || [],
+          modelLibrary: (options.config as any).modelLibrary || [],
+          roleAssignments: (options.config as any).roleAssignments || {},
+          models: options.config.models,
+        });
+      }
       if (updates.memes) {
         options.config.memes.enabled = updates.memes.enabled ?? options.config.memes.enabled;
         options.config.memes.allowedCategories =
@@ -283,6 +297,12 @@ export class HttpServer {
           updates.commands.masters ?? options.config.commands.masters;
         options.config.commands.commandPermissions =
           updates.commands.commandPermissions ?? options.config.commands.commandPermissions;
+      }
+      if (updates.pluginConfigs) {
+        options.config.pluginConfigs = {
+          ...options.config.pluginConfigs,
+          ...updates.pluginConfigs,
+        };
       }
 
       await writeFile(persistentPath, JSON.stringify(mergedConfig, null, 2));

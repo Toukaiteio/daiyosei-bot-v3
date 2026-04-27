@@ -1,4 +1,4 @@
-import { Agent, OpenAIProvider, Runner, type ModelSettings, type Tool } from '@openai/agents';
+import { Agent, OpenAIProvider, Runner, type AgentInputItem, type ModelSettings, type Tool } from '@openai/agents';
 import type { Logger } from 'pino';
 import { buildInstructions } from './instructions.js';
 import { ModelRouter } from './modelRouter.js';
@@ -37,13 +37,51 @@ export class AgentRuntime {
       modelProvider: this.getProvider(model),
       tracingDisabled: true,
     });
-    const result = await runner.run(agent, request.input, {
+    const input: AgentInputItem[] | string =
+      request.history && request.history.length > 0
+        ? [...request.history, { role: 'user' as const, content: request.input }]
+        : request.input;
+
+    const result = await runner.run(agent, input, {
       context: {
         userId: request.userId,
         groupId: request.groupId,
       },
     });
 
+    return {
+      output: String(result.finalOutput ?? ''),
+      model,
+    };
+  }
+
+  async runSearchQuery(query: string): Promise<AgentResponse | undefined> {
+    const model = this.router.getForSearch();
+    if (!model) {
+      return undefined;
+    }
+
+    this.logger.info({ role: model.role, model: model.model, query }, 'routing query to search model');
+
+    const agent = new Agent({
+      name: `${this.config.bot.name} Search`,
+      instructions: [
+        'You are a dedicated search assistant.',
+        'Answer the user query using concise, factual, up-to-date information.',
+        'Do not use tools.',
+        'If you cannot determine a reliable answer, say so plainly.',
+      ].join('\n'),
+      model: model.model,
+      modelSettings: this.toModelSettings(model),
+      tools: [],
+    });
+
+    const runner = new Runner({
+      modelProvider: this.getProvider(model),
+      tracingDisabled: true,
+    });
+
+    const result = await runner.run(agent, query);
     return {
       output: String(result.finalOutput ?? ''),
       model,

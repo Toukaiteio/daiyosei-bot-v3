@@ -1,9 +1,29 @@
 import { tool } from '@openai/agents';
 import { Buffer } from 'node:buffer';
+import { readFile } from 'node:fs/promises';
 import type { AppConfig, ModelProfile } from '../config/schema.js';
 import type { StorageDatabase } from './database.js';
 
 const maxImageBytes = 10 * 1024 * 1024;
+
+export type InspectRecentImageInput = {
+  imageId?: number;
+  messageId?: string;
+  question?: string;
+};
+
+export type InspectRecentImageResult = {
+  ok: boolean;
+  imageId?: number;
+  messageId?: string;
+  sourceUrl?: string;
+  localPath?: string;
+  contentType?: string;
+  bytes?: number;
+  model?: string;
+  answer?: string;
+  error?: string;
+};
 
 export function createImageHistoryTools(storage: StorageDatabase, config?: AppConfig) {
   return [
@@ -38,66 +58,79 @@ function createInspectRecentImageTool(storage: StorageDatabase, config: AppConfi
   return tool({
     name: 'inspect_recent_image',
     description:
-      'Download a cached chat image locally and inspect it with the configured vision model. Use this when the user asks what is in a sent image, sticker, meme, or QQ expression.',
+      'Inspect a cached chat image with the configured vision model. Use this when the user asks what is in a sent image, sticker, meme, or QQ expression.',
     parameters: {
       type: 'object',
       properties: {
         imageId: { type: 'integer', minimum: 1 },
         messageId: { type: 'string' },
-        url: { type: 'string' },
         question: { type: 'string' },
       },
       required: [],
       additionalProperties: false,
     },
-    execute: async ({ imageId, messageId, url, question }: any) => {
-      const image = resolveImage(storage, { imageId, messageId });
-      const sourceUrl = normalizeImageUrl(url || image?.url);
-      if (!sourceUrl) {
-        return {
-          ok: false,
-          error:
-            'No downloadable image URL was found. Call find_recent_images first and pass imageId, messageId, or a direct URL.',
-        };
-      }
-
-      const model = selectVisionModel(config);
-      if (!model) {
-        return {
-          ok: false,
-          error:
-            'No vision-capable model is configured. Assign a model with supportsVision=true to the vision role or main role.',
-        };
-      }
-
-      try {
-        const downloaded = await downloadImageAsDataUrl(sourceUrl);
-        const answer = await inspectWithVisionModel(
-          model,
-          downloaded.dataUrl,
-          question || 'Describe this image in the same language as the user. Mention if it looks like a sticker, meme, or expression.',
-        );
-        return {
-          ok: true,
-          imageId: image?.id,
-          messageId: image?.messageId,
-          sourceUrl,
-          contentType: downloaded.contentType,
-          bytes: downloaded.bytes,
-          model: model.model,
-          answer,
-        };
-      } catch (error) {
-        return {
-          ok: false,
-          imageId: image?.id,
-          messageId: image?.messageId,
-          sourceUrl,
-          error: error instanceof Error ? error.message : String(error),
-        };
-      }
-    },
+    execute: async (input: any) => inspectRecentImage(storage, config, input),
   });
+}
+
+export async function inspectRecentImage(
+  storage: StorageDatabase,
+  config: AppConfig,
+  { imageId, messageId, question }: InspectRecentImageInput,
+): Promise<InspectRecentImageResult> {
+  const image = resolveImage(storage, { imageId, messageId });
+  if (!image?.localPath && !image?.url) {
+    return {
+      ok: false,
+      imageId: image?.id,
+      messageId: image?.messageId,
+      error:
+        'No cached image source was found. Call find_recent_images first and pass imageId or messageId.',
+    };
+  }
+
+  const model = selectVisionModel(config);
+  if (!model) {
+    return {
+      ok: false,
+      imageId: image?.id,
+      messageId: image?.messageId,
+      sourceUrl: image?.url,
+      localPath: image?.localPath,
+      error:
+        'No vision-capable model is configured. Assign a model with supportsVision=true to the vision role or main role.',
+    };
+  }
+
+  try {
+    const downloaded = await loadImageAsDataUrl(image);
+    const answer = await inspectWithVisionModel(
+      model,
+      downloaded.dataUrl,
+      question ||
+        'Describe this image in the same language as the user. Mention if it looks like a sticker, meme, or expression.',
+    );
+    return {
+      ok: true,
+      imageId: image?.id,
+      messageId: image?.messageId,
+      sourceUrl: image?.url,
+      localPath: image?.localPath,
+      contentType: downloaded.contentType,
+      bytes: downloaded.bytes,
+      model: model.model,
+      answer,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      imageId: image?.id,
+      messageId: image?.messageId,
+      sourceUrl: image?.url,
+      localPath: image?.localPath,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 function resolveImage(
@@ -121,11 +154,35 @@ function selectVisionModel(config: AppConfig): ModelProfile | undefined {
   );
 }
 
-function normalizeImageUrl(value?: string) {
-  if (!value) return undefined;
-  const trimmed = value.trim();
-  if (!trimmed || trimmed.startsWith('/')) return undefined;
-  return trimmed;
+async function loadImageAsDataUrl(image: { localPath?: string; url?: string }) {
+  if (image.localPath) {
+    return readLocalImageAsDataUrl(image.localPath);
+  }
+
+  if (image.url) {
+    return downloadImageAsDataUrl(image.url);
+  }
+
+  throw new Error('No cached image source found');
+}
+
+async function readLocalImageAsDataUrl(localPath: string) {
+  const bytes = await readFile(localPath);
+  if (bytes.length === 0) {
+    throw new Error(`Local image file is empty: ${localPath}`);
+  }
+  if (bytes.length > maxImageBytes) {
+    throw new Error(`Local image is too large: ${bytes.length} bytes, max ${maxImageBytes}`);
+  }
+  const contentType = sniffImageMime(bytes);
+  if (!contentType.startsWith('image/')) {
+    throw new Error(`Local file is not a supported image: ${localPath}`);
+  }
+  return {
+    contentType,
+    bytes: bytes.length,
+    dataUrl: `data:${contentType};base64,${bytes.toString('base64')}`,
+  };
 }
 
 async function downloadImageAsDataUrl(url: string) {

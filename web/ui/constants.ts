@@ -122,3 +122,9 @@ export const DEFAULT_PLUGIN_MANIFEST = {
   entry: '',
   enabled: true,
 };
+
+export const DEFAULT_CS2_GUESS_PLUGIN_CONFIG = {
+  enabled: true,
+  gameDurationMinutes: 5,
+  maxGuesses: 15,
+};

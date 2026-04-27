@@ -17,7 +17,7 @@ export function replySegment(messageId: string): OneBotMessageSegment {
   return { type: 'reply', data: { id: messageId } };
 }
 
-const DIRECTIVE_RE = /\[\[(face|emoji|meme|image|pic|reply|quote)(?::([^\]]*))?\]\]/gi;
+const DIRECTIVE_RE = /\[\[(face|emoji|meme|image|pic|reply|quote|at)(?::([^\]]*))?\]\]/gi;
 
 const EMOJI_ALIASES: Record<string, string> = {
   smile: '😄',
@@ -124,6 +124,12 @@ function parseDirective(
     }
 
     return imageSegment(source);
+  }
+
+  if (kind === 'at') {
+    const qq = value.trim();
+    if (!qq) return textSegment(raw);
+    return { type: 'at', data: { qq } };
   }
 
   if (kind === 'reply' || kind === 'quote') {

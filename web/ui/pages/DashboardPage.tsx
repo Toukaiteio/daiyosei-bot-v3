@@ -4,6 +4,7 @@ import { EmptyState } from '../components/EmptyState';
 import { SectionHeader } from '../components/SectionHeader';
 import { StatCard } from '../components/StatCard';
 import { Tag } from '../components/Tag';
+import { DEFAULT_BOT_NAME } from '../../../src/config/defaultBotIdentity';
 
 type DashboardPageProps = {
   health?: HealthResponse;
@@ -33,7 +34,7 @@ export function DashboardPage({ health, status, plugins, skills, onNavigate }: D
           <div className="hero-header">
             <div>
               <div className="eyebrow">Runtime overview</div>
-              <h2>{status?.bot.name ?? 'Daiyosei'}</h2>
+              <h2>{status?.bot.name ?? DEFAULT_BOT_NAME}</h2>
             </div>
             <div className="hero-actions">
               <button className="btn-v3-outline" onClick={() => onNavigate('settings')} type="button">

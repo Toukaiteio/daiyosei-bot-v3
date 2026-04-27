@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import type { RecentImage, RecentImageQuery, StoredChatMessage, StoredImage } from './types.js';
+import type { ContextMessage, RecentImage, RecentImageQuery, StoredChatMessage, StoredImage } from './types.js';
 
 type ImageRow = {
   id: number;
@@ -10,6 +10,7 @@ type ImageRow = {
   user_id: string | null;
   group_id: string | null;
   url: string | null;
+  local_path: string | null;
   file_id: string | null;
   summary: string | null;
   ocr_text: string | null;
@@ -52,6 +53,7 @@ export class StorageDatabase {
         user_id TEXT,
         group_id TEXT,
         url TEXT,
+        local_path TEXT,
         file_id TEXT,
         summary TEXT,
         ocr_text TEXT,
@@ -66,12 +68,17 @@ export class StorageDatabase {
       CREATE INDEX IF NOT EXISTS idx_image_cache_hash
         ON image_cache(image_hash);
 
+      CREATE INDEX IF NOT EXISTS idx_chat_messages_group
+        ON chat_messages(group_id, created_at);
+
       CREATE TABLE IF NOT EXISTS user_blacklist (
         user_id TEXT PRIMARY KEY,
         reason TEXT,
         banned_at TEXT NOT NULL
       );
     `);
+    this.addColumnIfMissing('image_cache', 'local_path', 'TEXT');
+    this.addColumnIfMissing('chat_messages', 'role', "TEXT NOT NULL DEFAULT 'user'");
   }
 
   recordMessage(message: StoredChatMessage) {
@@ -79,33 +86,67 @@ export class StorageDatabase {
       .prepare(
         `
         INSERT INTO chat_messages (
-          message_id, self_id, user_id, group_id, type, text, raw_json, created_at
+          message_id, self_id, user_id, group_id, type, role, text, raw_json, created_at
         ) VALUES (
-          @messageId, @selfId, @userId, @groupId, @type, @text, @rawJson, @createdAt
+          @messageId, @selfId, @userId, @groupId, @type, @role, @text, @rawJson, @createdAt
         )
       `,
       )
       .run({
-        messageId: message.messageId,
-        selfId: message.selfId,
-        userId: message.userId,
-        groupId: message.groupId,
+        messageId: message.messageId ?? null,
+        selfId: message.selfId ?? null,
+        userId: message.userId ?? null,
+        groupId: message.groupId ?? null,
         type: message.type,
+        role: message.role ?? 'user',
         text: message.text,
         rawJson: JSON.stringify(message.raw),
         createdAt: message.createdAt.toISOString(),
       });
   }
 
-  recordImage(image: StoredImage) {
-    this.db
+  getRecentContext(opts: { userId?: string; groupId?: string; limit?: number }): ContextMessage[] {
+    const limit = Math.min(opts.limit ?? 20, 50);
+    type ContextRow = { role: string; user_id: string | null; text: string; created_at: string };
+    let rows: ContextRow[];
+
+    if (opts.groupId) {
+      rows = this.db
+        .prepare(
+          `SELECT role, user_id, text, created_at FROM chat_messages
+           WHERE group_id = @groupId
+           ORDER BY created_at DESC, id DESC LIMIT @limit`,
+        )
+        .all({ groupId: opts.groupId, limit }) as ContextRow[];
+    } else if (opts.userId) {
+      rows = this.db
+        .prepare(
+          `SELECT role, user_id, text, created_at FROM chat_messages
+           WHERE group_id IS NULL AND user_id = @userId
+           ORDER BY created_at DESC, id DESC LIMIT @limit`,
+        )
+        .all({ userId: opts.userId, limit }) as ContextRow[];
+    } else {
+      return [];
+    }
+
+    return rows.reverse().map((row) => ({
+      role: row.role === 'assistant' ? ('assistant' as const) : ('user' as const),
+      userId: row.user_id ?? undefined,
+      text: row.text,
+      createdAt: row.created_at,
+    }));
+  }
+
+  recordImage(image: StoredImage): number {
+    const result = this.db
       .prepare(
         `
         INSERT INTO image_cache (
-          image_hash, message_id, user_id, group_id, url, file_id,
+          image_hash, message_id, user_id, group_id, url, local_path, file_id,
           summary, ocr_text, tags_json, raw_json, created_at
         ) VALUES (
-          @imageHash, @messageId, @userId, @groupId, @url, @fileId,
+          @imageHash, @messageId, @userId, @groupId, @url, @localPath, @fileId,
           @summary, @ocrText, @tagsJson, @rawJson, @createdAt
         )
       `,
@@ -116,6 +157,7 @@ export class StorageDatabase {
         userId: image.userId,
         groupId: image.groupId,
         url: image.url,
+        localPath: image.localPath,
         fileId: image.fileId,
         summary: image.summary,
         ocrText: image.ocrText,
@@ -123,6 +165,7 @@ export class StorageDatabase {
         rawJson: JSON.stringify(image.raw),
         createdAt: image.createdAt.toISOString(),
       });
+    return Number(result.lastInsertRowid);
   }
 
   findRecentImages(query: RecentImageQuery = {}): RecentImage[] {
@@ -164,6 +207,13 @@ export class StorageDatabase {
       .prepare('SELECT * FROM image_cache WHERE message_id = @messageId ORDER BY created_at DESC, id DESC LIMIT 1')
       .get({ messageId }) as ImageRow | undefined;
     return row ? mapImageRow(row) : undefined;
+  }
+
+  findImagesByMessageId(messageId: string): RecentImage[] {
+    const rows = this.db
+      .prepare('SELECT * FROM image_cache WHERE message_id = @messageId ORDER BY created_at DESC, id DESC')
+      .all({ messageId }) as ImageRow[];
+    return rows.map(mapImageRow);
   }
 
   banUser(userId: string, reason?: string) {
@@ -216,6 +266,14 @@ export class StorageDatabase {
   close() {
     this.db.close();
   }
+
+  private addColumnIfMissing(table: string, column: string, definition: string) {
+    const rows = this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (rows.some((row) => row.name === column)) {
+      return;
+    }
+    this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
 }
 
 function mapImageRow(row: ImageRow): RecentImage {
@@ -226,6 +284,7 @@ function mapImageRow(row: ImageRow): RecentImage {
     userId: row.user_id ?? undefined,
     groupId: row.group_id ?? undefined,
     url: row.url ?? undefined,
+    localPath: row.local_path ?? undefined,
     fileId: row.file_id ?? undefined,
     summary: row.summary ?? undefined,
     ocrText: row.ocr_text ?? undefined,

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DEFAULT_BOT_NAME, DEFAULT_BOT_PERSONA } from './defaultBotIdentity.js';
 
 export const reasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']);
 export const logLevelSchema = z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']);
@@ -54,8 +55,8 @@ export const appConfigSchema = z.object({
     port: z.coerce.number().int().positive().default(3000),
   }),
   bot: z.object({
-    name: z.string().default('Daiyosei'),
-    persona: z.string().default('Cirno-inspired problem solving agent'),
+    name: z.string().default(DEFAULT_BOT_NAME),
+    persona: z.string().default(DEFAULT_BOT_PERSONA),
   }),
   paths: z.object({
     pluginsDir: z.string().default('plugins'),
@@ -90,6 +91,7 @@ export const appConfigSchema = z.object({
   oneBot: oneBotConfigSchema,
   commands: commandsConfigSchema.default({ masters: [], commandPermissions: {} }),
   memes: memeConfigSchema,
+  pluginConfigs: z.record(z.string(), z.unknown()).default({}),
   sandbox: sandboxConfigSchema,
   openMemory: z.object({
     baseUrl: z.string().url().optional(),

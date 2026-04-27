@@ -31,6 +31,10 @@ export class PluginRegistry {
     return [...this.tools];
   }
 
+  getPlugin(id: string) {
+    return this.plugins.get(id);
+  }
+
   getInjectedInstructions(): string[] {
     const all: string[] = [];
     for (const plugin of this.plugins.values()) {

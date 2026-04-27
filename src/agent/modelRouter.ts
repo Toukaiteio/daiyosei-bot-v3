@@ -1,18 +1,18 @@
 import type { AppConfig, ModelProfile, ModelRole } from '../config/schema.js';
 
 export class ModelRouter {
-  private readonly profiles: Map<ModelRole, ModelProfile>;
+  private readonly config: AppConfig;
 
   constructor(config: AppConfig) {
-    this.profiles = new Map(config.models.map((profile) => [profile.role, profile]));
+    this.config = config;
   }
 
   get(role: ModelRole = 'main'): ModelProfile {
-    return this.profiles.get(role) ?? this.profiles.get('main') ?? failNoMainModel();
+    return this.getProfile(role) ?? this.getProfile('main') ?? failNoMainModel();
   }
 
   getForVision(): ModelProfile | undefined {
-    const vision = this.profiles.get('vision');
+    const vision = this.getProfile('vision');
     if (vision) {
       return vision;
     }
@@ -22,7 +22,15 @@ export class ModelRouter {
   }
 
   getForReasoning(): ModelProfile {
-    return this.profiles.get('reasoning') ?? this.get('main');
+    return this.getProfile('reasoning') ?? this.get('main');
+  }
+
+  getForSearch(): ModelProfile | undefined {
+    return this.getProfile('search');
+  }
+
+  private getProfile(role: ModelRole): ModelProfile | undefined {
+    return this.config.models.find((profile) => profile.role === role);
   }
 }
 

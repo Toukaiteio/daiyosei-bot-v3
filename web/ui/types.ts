@@ -29,6 +29,8 @@ export type Plugin = {
   version: string;
 };
 
+export type PluginConfigMap = Record<string, unknown>;
+
 export type Provider = {
   id: string;
   name: string;
@@ -118,6 +120,7 @@ export type RuntimeStatus = {
       effectivePermission: string;
     }>;
   };
+  pluginConfigs: PluginConfigMap;
   paths: {
     pluginsDir: string;
     skillsDir: string;
@@ -187,4 +190,5 @@ export type ConfigPatch = {
   oneBot?: Partial<RuntimeStatus['oneBot']>;
   commands?: Partial<Pick<RuntimeStatus['commands'], 'masters' | 'commandPermissions'>>;
   memes?: Partial<Pick<RuntimeStatus['memes'], 'enabled' | 'allowedCategories' | 'disabledMemes'>>;
+  pluginConfigs?: Partial<RuntimeStatus['pluginConfigs']>;
 };

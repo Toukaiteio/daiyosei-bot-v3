@@ -100,7 +100,14 @@ export function App() {
       );
       break;
     case 'plugins':
-      page = <PluginsPage plugins={pluginsQuery.data} />;
+      page = (
+        <PluginsPage
+          plugins={pluginsQuery.data}
+          status={statusQuery.data}
+          isSaving={saveConfigMutation.isPending}
+          onSave={saveConfig}
+        />
+      );
       break;
     case 'skills':
       page = <SkillsPage skills={skillsQuery.data} />;

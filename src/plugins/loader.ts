@@ -4,14 +4,21 @@ import { join, resolve } from 'node:path';
 import type { Logger } from 'pino';
 import { pluginManifestSchema } from './manifest.js';
 import type { BotPlugin } from './types.js';
+import type { PluginFactoryOptions } from './types.js';
 
 type PluginModule = {
-  default?: BotPlugin | (() => BotPlugin | Promise<BotPlugin>);
-  plugin?: BotPlugin | (() => BotPlugin | Promise<BotPlugin>);
+  default?: BotPlugin | ((options: PluginFactoryOptions) => BotPlugin | Promise<BotPlugin>);
+  plugin?: BotPlugin | ((options: PluginFactoryOptions) => BotPlugin | Promise<BotPlugin>);
 };
 
 export class PluginLoader {
-  constructor(private readonly options: { directory: string; logger: Logger }) {}
+  constructor(
+    private readonly options: {
+      directory: string;
+      logger: Logger;
+      getPluginConfig?: (pluginId: string) => unknown;
+    },
+  ) {}
 
   async load(): Promise<BotPlugin[]> {
     const root = resolve(this.options.directory);
@@ -43,7 +50,14 @@ export class PluginLoader {
       const modulePath = pathToFileURL(join(root, entry.name, manifest.entry)).href;
       const mod = (await import(modulePath)) as PluginModule;
       const candidate = mod.plugin ?? mod.default;
-      const plugin = typeof candidate === 'function' ? await candidate() : candidate;
+      const plugin =
+        typeof candidate === 'function'
+          ? await candidate({
+              manifest,
+              config: this.options.getPluginConfig?.(manifest.id),
+              getConfig: () => this.options.getPluginConfig?.(manifest.id),
+            })
+          : candidate;
       if (!plugin) {
         throw new Error(`Plugin entry did not export a plugin: ${modulePath}`);
       }

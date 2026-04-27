@@ -4,9 +4,17 @@ export type StoredChatMessage = {
   userId?: string;
   groupId?: string;
   type: 'private' | 'group';
+  role?: 'user' | 'assistant';
   text: string;
   raw: unknown;
   createdAt: Date;
+};
+
+export type ContextMessage = {
+  role: 'user' | 'assistant';
+  userId?: string;
+  text: string;
+  createdAt: string;
 };
 
 export type StoredImage = {
@@ -15,6 +23,7 @@ export type StoredImage = {
   userId?: string;
   groupId?: string;
   url?: string;
+  localPath?: string;
   fileId?: string;
   summary?: string;
   ocrText?: string;
@@ -37,6 +46,7 @@ export type RecentImage = {
   userId?: string;
   groupId?: string;
   url?: string;
+  localPath?: string;
   fileId?: string;
   summary?: string;
   ocrText?: string;

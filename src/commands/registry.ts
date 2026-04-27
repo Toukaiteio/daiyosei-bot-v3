@@ -16,6 +16,10 @@ export class CommandRegistry {
     return this.commands.get(t)?.defaultPermission ?? 'master_only';
   }
 
+  get(trigger: string): CommandDef | undefined {
+    return this.commands.get(trigger.toLowerCase());
+  }
+
   list(): CommandDef[] {
     return [...this.commands.values()];
   }

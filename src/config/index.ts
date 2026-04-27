@@ -1,11 +1,12 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { DEFAULT_BOT_NAME, DEFAULT_BOT_PERSONA } from './defaultBotIdentity.js';
+import { deriveModelsFromLibrary } from './modelDerivation.js';
 import {
   appConfigSchema,
   reasoningEffortSchema,
   type AppConfig,
   type ModelProfile,
-  type ModelRole,
 } from './schema.js';
 
 type Env = Record<string, string | undefined>;
@@ -34,41 +35,16 @@ export function loadConfig(env: Env): AppConfig {
   const persistentOneBot = persistentConfig.oneBot && typeof persistentConfig.oneBot === 'object' ? persistentConfig.oneBot : {};
   const persistentMemes = persistentConfig.memes && typeof persistentConfig.memes === 'object' ? persistentConfig.memes : {};
   const persistentCommands = persistentConfig.commands && typeof persistentConfig.commands === 'object' ? persistentConfig.commands : {};
-
-  // Derive models array from roleAssignments, modelLibrary, and providers
-  let derivedModels: ModelProfile[] = [];
-  
-  if (Object.keys(roleAssignments).length > 0 && modelLibrary.length > 0 && providers.length > 0) {
-    for (const [role, modelId] of Object.entries(roleAssignments)) {
-      const modelDef = modelLibrary.find((m: any) => m.id === modelId);
-      if (modelDef) {
-        const provider = providers.find((p: any) => p.id === modelDef.providerId);
-        if (provider) {
-          derivedModels.push({
-            role: role as ModelRole,
-            name: modelDef.name,
-            model: modelDef.model,
-            baseUrl: provider.baseUrl,
-            apiKey: provider.apiKey,
-            supportsVision: Boolean(modelDef.supportsVision),
-            supportsReasoning: Boolean(modelDef.supportsReasoning),
-            reasoningEffort: (modelDef.reasoningEffort as any) ?? 'medium',
-            useResponsesApi: false,
-          });
-        }
-      }
-    }
-  }
-
-  // Fallback to env-based models if none derived or if main is missing
-  if (derivedModels.length === 0 || !derivedModels.some(m => m.role === 'main')) {
-    // If we have some derived models but no 'main', add the .env main model
-    if (derivedModels.length > 0 && !derivedModels.some(m => m.role === 'main')) {
-      derivedModels.push(mainModel);
-    } else if (derivedModels.length === 0) {
-      derivedModels = [mainModel, ...optionalModels];
-    }
-  }
+  const persistentPluginConfigs = persistentConfig.pluginConfigs && typeof persistentConfig.pluginConfigs === 'object'
+    ? persistentConfig.pluginConfigs
+    : {};
+  const fallbackModels = [mainModel, ...optionalModels];
+  const derivedModels = deriveModelsFromLibrary({
+    providers,
+    modelLibrary,
+    roleAssignments,
+    models: fallbackModels,
+  });
 
   const openMemoryBaseUrl = env.OPENMEMORY_BASE_URL && env.OPENMEMORY_BASE_URL.trim() !== '' ? env.OPENMEMORY_BASE_URL : undefined;
 
@@ -79,8 +55,8 @@ export function loadConfig(env: Env): AppConfig {
       port: env.HTTP_PORT,
     },
     bot: {
-      name: persistentConfig.bot?.name ?? env.BOT_NAME,
-      persona: persistentConfig.bot?.persona ?? env.BOT_PERSONA,
+      name: toString(persistentConfig.bot?.name, env.BOT_NAME, DEFAULT_BOT_NAME),
+      persona: toString(persistentConfig.bot?.persona, env.BOT_PERSONA, DEFAULT_BOT_PERSONA),
     },
     paths: {
       pluginsDir: env.PLUGINS_DIR,
@@ -140,6 +116,7 @@ export function loadConfig(env: Env): AppConfig {
         ? persistentCommands.commandPermissions
         : undefined,
     },
+    pluginConfigs: persistentPluginConfigs,
     sandbox: {
       workspaceRoot: env.SANDBOX_WORKSPACE_ROOT,
       allowNetwork: parseBoolean(env.SANDBOX_ALLOW_NETWORK, false),

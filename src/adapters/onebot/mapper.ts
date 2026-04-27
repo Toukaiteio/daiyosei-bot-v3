@@ -52,6 +52,11 @@ function segmentToText(segment: OneBotMessageSegment) {
     return `[image${attrs.length > 0 ? ` ${attrs.join(' ')}` : ''}]`;
   }
 
+  if (segment.type === 'at') {
+    const qq = readString(segment.data.qq);
+    return qq ? `[@${qq}]` : '[@]';
+  }
+
   if (segment.type === 'reply') {
     const id = readString(segment.data.id);
     return id ? `[reply id=${JSON.stringify(id)}]` : '[reply]';

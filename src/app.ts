@@ -64,12 +64,13 @@ export async function createApp({ config, logger }: AppDependencies) {
 
   plugins.register(createCorePlugin({ skills, sandboxPolicy, memory, storage, config, memes, memeConfig: config.memes }));
   plugins.register(createSandboxPlugin({ sandboxPolicy }));
-  plugins.register(createBrowserPlugin({ sandboxPolicy }));
+  plugins.register(createBrowserPlugin({ sandboxPolicy, agentRuntime }));
   plugins.register(createTaskAgentPlugin({ agentRuntime, config }));
   plugins.register(createBlacklistPlugin({ storage }));
   for (const plugin of await new PluginLoader({
     directory: config.paths.pluginsDir,
     logger,
+    getPluginConfig: (pluginId) => config.pluginConfigs[pluginId],
   }).load()) {
     plugins.register(plugin);
   }

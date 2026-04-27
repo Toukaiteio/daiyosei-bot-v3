@@ -1,9 +1,9 @@
-import { tool, Agent, Runner, OpenAIProvider } from '@openai/agents';
+import { Agent, OpenAIProvider, Runner, tool } from '@openai/agents';
 import { z } from 'zod';
-import type { BotPlugin } from './types.js';
-import { appEventBus } from '../events.js';
 import type { AgentRuntime } from '../agent/agentRuntime.js';
 import type { AppConfig } from '../config/schema.js';
+import { emitAsyncMessage, scheduleAsyncWork } from './asyncExecution.js';
+import type { BotPlugin } from './types.js';
 
 export function createTaskAgentPlugin(options: { agentRuntime: AgentRuntime; config: AppConfig }): BotPlugin {
   let isTaskAgentBusy = false;
@@ -13,53 +13,59 @@ export function createTaskAgentPlugin(options: { agentRuntime: AgentRuntime; con
     name: 'Task Agent Plugin',
     description: 'Provides the ability to delegate complex tasks to an asynchronous Task Agent.',
     instructions: [
-      '- 对于复杂、多步骤的调研、网页浏览或深度分析任务，优先使用 `delegate_task` 工具将其交给 Task Agent 处理。这样你可以保持对用户的响应，而 Task Agent 会在后台处理耗时任务。',
-      '- 当你调用 `delegate_task` 或其他可能耗时的工具（如网页访问、命令执行）时，如果预计执行时间较长，建议填写 `pending_notice` 参数。该内容会立即发送给用户，作为“正在处理中”的反馈，提升用户体验。',
+      '- Use `delegate_task` for complex or multi-step work.',
+      '- For tools that support it, default to `execution_mode=async` when the work may take noticeable time.',
+      '- Use `sync` only when you need the result immediately and expect it to finish quickly.',
+      '- If you choose async mode, you may also provide `pending_notice` as immediate feedback before the task starts.',
+      '- Output plain text only. Do not use Markdown headings, bullet lists, code fences, tables, or block quotes in the final report.',
     ],
     setup(context) {
       context.registerTools([
         tool({
           name: 'delegate_task',
-          description: 'Delegate a complex, multi-step task to the asynchronous Task Agent. The Task Agent will process it in the background using the reasoning model and notify the user when done. DO NOT wait for it to finish. Return immediately to the user.',
+          description:
+            'Delegate a complex, multi-step task to the Task Agent. In async mode the task runs in the background and notifies the user when done. In sync mode it waits and returns the report directly.',
           parameters: z.object({
             task: z.string().describe('The detailed description of the complex task to delegate.'),
-            pending_notice: z.string().optional().describe('An optional message to show the user immediately while the task is starting (e.g. "正在深入调查中，请稍候...")'),
+            execution_mode: z.enum(['async', 'sync']).default('async'),
+            pending_notice: z.string().optional().describe('An optional message to show the user immediately while the task is starting.'),
             userId: z.string().optional(),
             groupId: z.string().optional(),
           }),
-          execute: async ({ task, pending_notice, userId, groupId }) => {
+          execute: async ({ task, execution_mode, pending_notice, userId, groupId }) => {
             if (isTaskAgentBusy) {
-              return 'Task Agent is currently busy processing another task. Please try to resolve the problem yourself or inform the user that they must wait.';
+              return 'Task Agent is currently busy processing another task. Please wait.';
             }
 
-            if (pending_notice) {
-              appEventBus.emit('async_agent_message', {
-                message: pending_notice,
-                userId,
-                groupId,
-              });
-            }
+            if (execution_mode === 'sync') {
+              if (pending_notice) {
+                emitAsyncMessage(pending_notice, { userId, groupId });
+              }
 
-            // Set busy flag
-            isTaskAgentBusy = true;
-
-            // Start asynchronous processing
-            // eslint-disable-next-line @typescript-eslint/no-floating-promises
-            (async () => {
+              isTaskAgentBusy = true;
               try {
-                await runTaskAgent(task, userId, groupId, options.config, options.agentRuntime);
-              } catch (error: any) {
-                appEventBus.emit('async_agent_message', {
-                  message: `Task Agent encountered an unexpected fatal error: ${error.message}`,
-                  userId,
-                  groupId,
-                });
+                return sanitizePlainText(await runTaskAgent(task, userId, groupId, options.config, options.agentRuntime));
               } finally {
                 isTaskAgentBusy = false;
               }
-            })();
+            }
 
-            return `Task successfully delegated to the Task Agent. It is now running asynchronously. You should inform the user that the Task Agent is handling it and they will receive a notification later.`;
+            isTaskAgentBusy = true;
+            return scheduleAsyncWork({
+              context: { userId, groupId },
+              pendingNotice: pending_notice,
+              queuedMessage: 'Task successfully delegated to the Task Agent. It is now running asynchronously.',
+              run: async () => {
+                try {
+                  return sanitizePlainText(await runTaskAgent(task, userId, groupId, options.config, options.agentRuntime));
+                } finally {
+                  isTaskAgentBusy = false;
+                }
+              },
+              formatSuccess: (finalReport) => `[Task Agent Report]\n${sanitizePlainText(finalReport)}`,
+              formatError: (error) =>
+                `Task Agent encountered an unexpected fatal error: ${error instanceof Error ? error.message : String(error)}`,
+            });
           },
         }),
       ]);
@@ -74,8 +80,8 @@ async function runTaskAgent(
   config: AppConfig,
   agentRuntime: AgentRuntime,
 ) {
-  // Find reasoning model
-  const reasoningModel = config.models.find((m) => m.role === 'reasoning') || config.models.find((m) => m.role === 'main');
+  const reasoningModel =
+    config.models.find((model) => model.role === 'reasoning') || config.models.find((model) => model.role === 'main');
   if (!reasoningModel) {
     throw new Error('No reasoning or main model configured.');
   }
@@ -90,8 +96,6 @@ async function runTaskAgent(
     modelProvider: provider,
     tracingDisabled: true,
   });
-
-  // Tools for Task Agent
 
   const subtaskTool = tool({
     name: 'execute_subtask',
@@ -109,8 +113,8 @@ async function runTaskAgent(
           groupId,
         });
         return `Subtask completed. Result:\n${response.output}`;
-      } catch (e: any) {
-        return `Subtask failed: ${e.message}`;
+      } catch (error: any) {
+        return `Subtask failed: ${error.message}`;
       }
     },
   });
@@ -122,30 +126,37 @@ You have access to all tools.
 Requirements:
 1. Break down the task into logical steps.
 2. For each step, determine the best tool or subtask role to use.
-3. Use execute_subtask ONLY when you need to delegate a specific part of the task to a different model (e.g. for vision analysis or internet search if you cannot do it directly).
-4. ERROR DETECTION & RETRY: If a step fails or returns unhelpful results, analyze the failure, redesign the path, and retry with a different approach or different subtask input.
-5. REFUSAL: If you determine the task is completely beyond your capability after attempts, reply with a refusal message explaining why.
+3. Use execute_subtask ONLY when you need to delegate a specific part of the task to a different model.
+4. If a step fails or returns unhelpful results, analyze the failure, redesign the path, and retry with a different approach.
+5. If you cannot complete the task after reasonable attempts, reply with a refusal message explaining why.
 6. Once all steps are completed successfully, your final response should be the comprehensive report.
 
 Do not ask the user for input during the process, as you are running in the background. Make reasonable assumptions or fail gracefully.
 `,
     model: reasoningModel.model,
-    tools: [
-      subtaskTool,
-      ...agentRuntime.getTools().filter((t) => t.name !== 'delegate_task'),
-    ],
-    modelSettings: reasoningModel.supportsReasoning ? { reasoning: { effort: reasoningModel.reasoningEffort } } : undefined,
+    tools: [subtaskTool, ...agentRuntime.getTools().filter((tool) => tool.name !== 'delegate_task')],
+    modelSettings: reasoningModel.supportsReasoning
+      ? { reasoning: { effort: reasoningModel.reasoningEffort } }
+      : undefined,
   });
 
   const result = await runner.run(taskAgent, `Please execute the following task:\n${task}`);
   const finalReport = result.finalOutput || 'Task Agent finished without producing a report.';
 
-  // Notify the user
-  appEventBus.emit('async_agent_message', {
-    message: `[Task Agent Report]\n${finalReport}`,
-    userId,
-    groupId,
-  });
-
   await provider.close();
+  return finalReport;
+}
+
+function sanitizePlainText(input: string) {
+  return input
+    .replace(/```[\s\S]*?```/g, (block) => block.replace(/```[a-zA-Z0-9_-]*\n?/g, '').replace(/```/g, ''))
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*\d+\.\s+/gm, '')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/__(.*?)__/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\r/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }

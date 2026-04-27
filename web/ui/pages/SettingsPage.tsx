@@ -1,5 +1,6 @@
 import { Save, Settings, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { DEFAULT_BOT_NAME, DEFAULT_BOT_PERSONA } from '../../../src/config/defaultBotIdentity';
 import { LOG_LEVELS } from '../constants';
 import { SectionHeader } from '../components/SectionHeader';
 import { Selector } from '../components/Selector';
@@ -12,8 +13,8 @@ type SettingsPageProps = {
 };
 
 export function SettingsPage({ status, isSaving, onSave }: SettingsPageProps) {
-  const [botName, setBotName] = useState('');
-  const [persona, setPersona] = useState('');
+  const [botName, setBotName] = useState(DEFAULT_BOT_NAME);
+  const [persona, setPersona] = useState(DEFAULT_BOT_PERSONA);
   const [logLevel, setLogLevel] = useState<(typeof LOG_LEVELS)[number]>('info');
   const hasInitialized = useRef(false);
 
@@ -35,8 +36,8 @@ export function SettingsPage({ status, isSaving, onSave }: SettingsPageProps) {
 
     await onSave({
       bot: {
-        name: botName.trim() || 'Daiyosei',
-        persona: persona.trim() || 'Cirno-inspired problem solving agent',
+        name: botName.trim() || DEFAULT_BOT_NAME,
+        persona: persona.trim() || DEFAULT_BOT_PERSONA,
       },
       logging: {
         level: logLevel,

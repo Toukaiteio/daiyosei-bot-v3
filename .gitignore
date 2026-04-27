@@ -28,3 +28,5 @@ backend.log*
 
 talktone.md
 data/
+plugins/**
+tests/cs2PlayerGuessPlugin.test.ts
