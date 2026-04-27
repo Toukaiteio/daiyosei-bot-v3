@@ -22,7 +22,6 @@ export function loadConfig(env: Env): AppConfig {
     }
   }
 
-  const mainModel = readModelProfile(env, 'MAIN', 'main');
   const optionalModels = [
     readOptionalModelProfile(env, 'SEARCH', 'search'),
     readOptionalModelProfile(env, 'VISION', 'vision'),
@@ -38,13 +37,19 @@ export function loadConfig(env: Env): AppConfig {
   const persistentPluginConfigs = persistentConfig.pluginConfigs && typeof persistentConfig.pluginConfigs === 'object'
     ? persistentConfig.pluginConfigs
     : {};
-  const fallbackModels = [mainModel, ...optionalModels];
+  const fallbackModels = optionalModels;
   const derivedModels = deriveModelsFromLibrary({
     providers,
     modelLibrary,
     roleAssignments,
     models: fallbackModels,
   });
+
+  if (!derivedModels.some((model) => model.role === 'main')) {
+    throw new Error(
+      'No main model configured in data/config.json. Configure providers, modelLibrary, and roleAssignments so role "main" resolves to a model.',
+    );
+  }
 
   const openMemoryBaseUrl = env.OPENMEMORY_BASE_URL && env.OPENMEMORY_BASE_URL.trim() !== '' ? env.OPENMEMORY_BASE_URL : undefined;
 

@@ -6,9 +6,6 @@ Current source of truth:
 
 - [requirement.md](./requirement.md)
 
-Legacy reference kept for migration work:
-
-- [reference/legacy-onebot-v11/README.md](./reference/legacy-onebot-v11/README.md)
 
 ## Development
 
@@ -19,7 +16,7 @@ npm test
 npm run dev
 ```
 
-Copy `.env.example` to `.env` and fill the model settings before running agent calls.
+Copy `.env.example` to `.env`, then configure models in `data/config.json` or through the WebUI before running agent calls.
 
 ## Current Foundation
 
