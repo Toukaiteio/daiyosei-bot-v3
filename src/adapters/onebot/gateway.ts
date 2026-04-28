@@ -585,6 +585,8 @@ export class OneBotGateway {
             ? inspected.answer
             : `图片查看失败：${inspected.error ?? 'unknown error'}`;
         }
+      } else if (isSearchDirectiveName(directive.name)) {
+        replacement = await this.resolveSearchPseudoDirective(directive, question, context);
       } else {
         replacement = await this.resolveBrowserPseudoDirective(directive, question, context);
       }
@@ -630,6 +632,39 @@ export class OneBotGateway {
     return result;
   }
 
+  private async resolveSearchPseudoDirective(
+    directive: { name: string; value: string; params: Record<string, string>; raw: string },
+    question: string,
+    context: { userId?: string; groupId?: string },
+  ) {
+    const searchPlugin = this.options.pluginRegistry.getPlugin('search');
+    const resolver = searchPlugin?.resolveInlineDirective;
+
+    if (!resolver) {
+      return `搜索工具调用未执行：${directive.name}${directive.value ? `:${directive.value}` : ''}`;
+    }
+
+    const result = await resolver({
+      name: directive.name,
+      value: directive.value,
+      params: directive.params,
+      raw: directive.raw,
+      question,
+      userId: context.userId,
+      groupId: context.groupId,
+    });
+
+    if (directive.params.execution_mode?.toLowerCase() === 'async') {
+      return typeof result === 'string' ? result : '';
+    }
+
+    if (typeof result !== 'string' || result.trim() === '') {
+      return `搜索工具调用未执行：${directive.name}${directive.value ? `:${directive.value}` : ''}`;
+    }
+
+    return result;
+  }
+
   private async trySearchFirst(message: {
     text: string;
     id?: string;
@@ -640,11 +675,11 @@ export class OneBotGateway {
       return undefined;
     }
 
-    const browserPlugin = this.options.pluginRegistry.getPlugin('browser');
-    if (!browserPlugin?.resolveInlineDirective) {
+    const searchPlugin = this.options.pluginRegistry.getPlugin('search');
+    if (!searchPlugin?.resolveInlineDirective) {
       this.options.logger.warn(
         { query: message.text, userId: message.userId, groupId: message.groupId },
-        'search request matched but browser plugin is unavailable',
+        'search request matched but search plugin is unavailable',
       );
       return undefined;
     }
@@ -654,14 +689,14 @@ export class OneBotGateway {
       'routing message to search workflow',
     );
 
-    const result = await browserPlugin.resolveInlineDirective({
-      name: 'browser_search',
+    const result = await searchPlugin.resolveInlineDirective({
+      name: 'priority_search',
       value: message.text,
       params: {
         execution_mode: 'sync',
         pending_notice: '正在搜索，请稍候...',
       },
-      raw: `[[browser_search:${message.text}]]`,
+      raw: `[[priority_search:${message.text}]]`,
       question: message.text,
       userId: message.userId,
       groupId: message.groupId,
@@ -790,6 +825,10 @@ function readString(value: unknown) {
     return undefined;
   }
   return value;
+}
+
+function isSearchDirectiveName(name: string) {
+  return name === 'priority_search' || name === 'browser_search';
 }
 
 function isWoken(message: { selfId?: string; text: string; segments: { type: string; data: Record<string, unknown> }[] }, wakeKeywords: string[]): boolean {

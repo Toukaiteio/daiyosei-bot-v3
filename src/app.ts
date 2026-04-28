@@ -4,6 +4,7 @@ import { AgentRuntime } from './agent/agentRuntime.js';
 import { CommandRegistry } from './commands/registry.js';
 import { createCorePlugin } from './plugins/corePlugin.js';
 import { createSandboxPlugin } from './plugins/sandboxPlugin.js';
+import { createSearchPlugin } from './plugins/searchPlugin.js';
 import { createBrowserPlugin } from './plugins/browserPlugin.js';
 import { createTaskAgentPlugin } from './plugins/taskAgentPlugin.js';
 import { createBlacklistPlugin } from './plugins/blacklistPlugin.js';
@@ -64,7 +65,8 @@ export async function createApp({ config, logger }: AppDependencies) {
 
   plugins.register(createCorePlugin({ skills, sandboxPolicy, memory, storage, config, memes, memeConfig: config.memes }));
   plugins.register(createSandboxPlugin({ sandboxPolicy }));
-  plugins.register(createBrowserPlugin({ sandboxPolicy, agentRuntime }));
+  plugins.register(createSearchPlugin({ agentRuntime }));
+  plugins.register(createBrowserPlugin({ sandboxPolicy }));
   plugins.register(createTaskAgentPlugin({ agentRuntime, config }));
   plugins.register(createBlacklistPlugin({ storage }));
   for (const plugin of await new PluginLoader({

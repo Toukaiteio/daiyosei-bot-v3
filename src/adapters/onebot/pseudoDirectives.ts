@@ -5,7 +5,7 @@ export type PseudoDirective = {
   raw: string;
 };
 
-const PSEUDO_DIRECTIVE_RE = /\[\[(browser_goto|browser_search|browser_read_text|browser_click|browser_type|browser_evaluate|browser_screenshot_to_sandbox|inspect_recent_image)(?::([^\]]*))?\]\]/gi;
+const PSEUDO_DIRECTIVE_RE = /\[\[(priority_search|browser_search|browser_goto|browser_read_text|browser_click|browser_type|browser_evaluate|browser_screenshot_to_sandbox|inspect_recent_image)(?::([^\]]*))?\]\]/gi;
 
 export function extractPseudoDirectives(text: string): PseudoDirective[] {
   const directives: PseudoDirective[] = [];

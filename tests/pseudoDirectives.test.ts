@@ -27,11 +27,21 @@ describe('pseudo directives', () => {
     ]);
   });
 
+  it('extracts the priority search directive', () => {
+    const directives = extractPseudoDirectives('[[priority_search: 2025 hltv top1]]');
+
+    expect(directives).toEqual([
+      {
+        name: 'priority_search',
+        value: '2025 hltv top1',
+        params: {},
+        raw: '[[priority_search: 2025 hltv top1]]',
+      },
+    ]);
+  });
+
   it('returns a clear failure when the browser has not started', async () => {
     const plugin = createBrowserPlugin({
-      agentRuntime: {
-        runSearchQuery: async () => undefined,
-      } as any,
       sandboxPolicy: {
         describe: () => ({
           workspaceRoot: 'E:/workspace',
