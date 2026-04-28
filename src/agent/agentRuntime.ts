@@ -67,9 +67,9 @@ export class AgentRuntime {
       name: `${this.config.bot.name} Search`,
       instructions: [
         'You are a dedicated search assistant.',
+        'Use your available search capability to gather current information before answering.',
         'Answer the user query using concise, factual, up-to-date information.',
-        'Do not use tools.',
-        'If you cannot determine a reliable answer, say so plainly.',
+        'If the search results do not support a reliable answer, say so plainly instead of guessing.',
       ].join('\n'),
       model: model.model,
       modelSettings: this.toModelSettings(model),

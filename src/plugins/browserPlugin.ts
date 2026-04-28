@@ -75,7 +75,6 @@ export function createBrowserPlugin(options: { sandboxPolicy: SandboxPolicy; age
       '- 决定搜索时，直接调用工具，不要先用文本说"我去搜一下"——把那句话填到 `pending_notice` 参数里即可，工具会替你发出去。',
       '- 网页访问可能较慢，调用 `browser_goto` 时默认使用 `execution_mode=async`，必须同时填写 `pending_notice` 告知用户正在处理。',
       '- 如果只是搜索关键词，优先调用 `browser_search`，不要自己手写搜索引擎 URL。',
-      '- 搜索信息时可先访问搜索引擎（如 https://www.bing.com/search?q=关键词），读取结果页文本，再按需跳转原文链接。',
       '- 不要把浏览器工具写成 `[[browser_search:...]]`、`[[browser_goto:...]]`、`[[browser_read_text]]` 这种文本标签；只能通过真正的工具调用来执行。',
     ],
     resolveInlineDirective,
@@ -137,7 +136,7 @@ export function createBrowserPlugin(options: { sandboxPolicy: SandboxPolicy; age
 
         tool({
           name: 'browser_search',
-          description: 'Search the web. Prefer the configured search model first, and fall back to Bing with the headless browser when no search model is available.',
+          description: 'Search using the configured search model and return its answer directly.',
           parameters: z.object({
             query: z.string(),
             execution_mode: z.enum(['async', 'sync']).default('async'),
@@ -291,19 +290,7 @@ export function createBrowserPlugin(options: { sandboxPolicy: SandboxPolicy; age
       return searchModelText;
     }
 
-    const url = `https://www.bing.com/search?q=${encodeURIComponent(trimmed)}`;
-    const navigation = await gotoUrl(url, trimmed);
-    if (!page) {
-      return navigation;
-    }
-
-    try {
-      const text = await page.$eval('body', (el) => (el as HTMLElement).innerText);
-      const results = text.substring(0, 4000);
-      return `${navigation}\n\n${results}`;
-    } catch (err: any) {
-      return `${navigation}\n\nError reading search results: ${err.message}`;
-    }
+    return 'Search model unavailable or returned no output.';
   }
 
   async function readCurrentPageText(selector = 'body') {
