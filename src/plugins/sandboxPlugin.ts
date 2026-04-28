@@ -1,14 +1,11 @@
 import { tool } from '@openai/agents';
 import { z } from 'zod';
 import { resolve, join } from 'node:path';
-import { readFile, writeFile, readdir, stat } from 'node:fs/promises';
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
+import { readFile, writeFile, readdir, rm } from 'node:fs/promises';
 import type { SandboxPolicy } from '../sandbox/policy.js';
 import type { BotPlugin } from './types.js';
 import { emitAsyncMessage, scheduleAsyncWork } from './asyncExecution.js';
-
-const execAsync = promisify(exec);
+import { execa } from 'execa';
 
 export function createSandboxPlugin(options: { sandboxPolicy: SandboxPolicy }): BotPlugin {
   return {
@@ -41,6 +38,30 @@ export function createSandboxPlugin(options: { sandboxPolicy: SandboxPolicy }): 
               return await readFile(absolutePath, 'utf8');
             } catch (error) {
               return `Error reading file: ${error instanceof Error ? error.message : String(error)}`;
+            }
+          },
+        }),
+
+        tool({
+          name: 'delete_file',
+          description: 'Delete a file or directory within the sandbox.',
+          parameters: z.object({
+            path: z.string().describe('The relative path to the file or directory to delete'),
+          }),
+          execute: async ({ path }) => {
+            const { workspaceRoot } = options.sandboxPolicy.describe();
+            const absolutePath = resolve(workspaceRoot, path);
+
+            const decision = options.sandboxPolicy.canDelete(absolutePath);
+            if (!decision.allowed) {
+              return `Error: ${decision.reason}`;
+            }
+
+            try {
+              await rm(absolutePath, { recursive: true, force: true });
+              return `Successfully deleted ${path}`;
+            } catch (error) {
+              return `Error deleting: ${error instanceof Error ? error.message : String(error)}`;
             }
           },
         }),
@@ -121,10 +142,7 @@ export function createSandboxPlugin(options: { sandboxPolicy: SandboxPolicy }): 
                 queuedMessage: `Command has been started in the background: ${command}`,
                 run: async () => {
                   const { workspaceRoot, maxExecutionMs } = options.sandboxPolicy.describe();
-                  const { stdout, stderr } = await execAsync(command, {
-                    cwd: workspaceRoot,
-                    timeout: maxExecutionMs,
-                  });
+                  const { stdout, stderr } = await execa({ shell: true, cwd: workspaceRoot, timeout: maxExecutionMs })(command);
 
                   return {
                     stdout: stdout.trim(),
@@ -141,17 +159,14 @@ export function createSandboxPlugin(options: { sandboxPolicy: SandboxPolicy }): 
             const { workspaceRoot, maxExecutionMs } = options.sandboxPolicy.describe();
 
             try {
-              const { stdout, stderr } = await execAsync(command, {
-                cwd: workspaceRoot,
-                timeout: maxExecutionMs,
-              });
+              const { stdout, stderr } = await execa({ shell: true, cwd: workspaceRoot, timeout: maxExecutionMs })(command);
               
               return {
                 stdout: stdout.trim(),
                 stderr: stderr.trim(),
               };
             } catch (error: any) {
-              return `Command execution failed: ${error.message}\nStdout: ${error.stdout}\nStderr: ${error.stderr}`;
+              return `Command execution failed: ${error.message}\nStdout: ${error.stdout || '(empty)'}\nStderr: ${error.stderr || '(empty)'}`;
             }
           },
         }),

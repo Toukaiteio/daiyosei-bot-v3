@@ -13,10 +13,11 @@ export function createTaskAgentPlugin(options: { agentRuntime: AgentRuntime; con
     name: 'Task Agent Plugin',
     description: 'Provides the ability to delegate complex tasks to an asynchronous Task Agent.',
     instructions: [
-      '- Use `delegate_task` for complex or multi-step work.',
+      '- Use `delegate_task` for complex, long-running, or multi-step tasks that require browsing, searching, or executing code.',
       '- For tools that support it, default to `execution_mode=async` when the work may take noticeable time.',
       '- Use `sync` only when you need the result immediately and expect it to finish quickly.',
       '- If you choose async mode, you may also provide `pending_notice` as immediate feedback before the task starts.',
+      '- Inform the user that the Task Agent is a background agent that can perform deep research and complex sequences of actions autonomously.',
       '- Output plain text only. Do not use Markdown headings, bullet lists, code fences, tables, or block quotes in the final report.',
     ],
     setup(context) {
@@ -121,17 +122,20 @@ async function runTaskAgent(
 
   const taskAgent = new Agent({
     name: 'Task Agent',
-    instructions: `You are an asynchronous Task Agent. Your job is to process complex tasks broken down into steps.
-You have access to all tools.
+    instructions: `You are an asynchronous autonomous Task Agent. Your job is to process complex, multi-step tasks by thinking and executing iteratively.
+You have access to all system tools including browser, sandbox, and memory.
 Requirements:
-1. Break down the task into logical steps.
-2. For each step, determine the best tool or subtask role to use.
-3. Use execute_subtask ONLY when you need to delegate a specific part of the task to a different model.
-4. If a step fails or returns unhelpful results, analyze the failure, redesign the path, and retry with a different approach.
-5. If you cannot complete the task after reasonable attempts, reply with a refusal message explaining why.
-6. Once all steps are completed successfully, your final response should be the comprehensive report.
+1. Break down the user's request into logical, manageable steps. Do not try to do everything in one single tool call if it requires multiple actions.
+2. Formulate a plan and execute it step-by-step.
+3. If you need to search or browse, use browser tools directly to navigate and extract data. You can read texts, click, and navigate.
+4. If a step fails or returns unhelpful results, carefully analyze the failure, redesign the path, and retry with a different approach. Be persistent.
+5. Use execute_subtask ONLY when you need to delegate a specific subtask to a specialized model.
+6. Once all steps are completed successfully, synthesize all findings and your final response should be a comprehensive and helpful report for the user.
 
-Do not ask the user for input during the process, as you are running in the background. Make reasonable assumptions or fail gracefully.
+Remember:
+- You are running in the background. Do not ask the user for input during the process. Make reasonable assumptions or fail gracefully if impossible.
+- Take your time to thoroughly research or execute what is asked.
+- Provide a detailed answer summarizing your actions and findings.
 `,
     model: reasoningModel.model,
     tools: [subtaskTool, ...agentRuntime.getTools().filter((tool) => tool.name !== 'delegate_task')],

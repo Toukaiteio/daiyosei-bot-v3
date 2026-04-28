@@ -1,4 +1,5 @@
 import type { AppConfig } from '../config/schema.js';
+import { relative, isAbsolute } from 'node:path';
 
 export type SandboxDecision = {
   allowed: boolean;
@@ -9,17 +10,27 @@ export class SandboxPolicy {
   constructor(private readonly config: AppConfig['sandbox']) {}
 
   describe() {
+    const blockedActions = ['unapproved_network', 'unsafe_shell'];
+    if (!this.config.allowPersistentWrites) blockedActions.push('persistent_write');
+    if (!this.config.allowDeletes) blockedActions.push('delete');
+
     return {
       workspaceRoot: this.config.workspaceRoot,
       allowNetwork: this.config.allowNetwork,
       allowPersistentWrites: this.config.allowPersistentWrites,
+      allowDeletes: this.config.allowDeletes,
       maxExecutionMs: this.config.maxExecutionMs,
-      blockedActions: ['delete', 'persistent_write', 'unapproved_network', 'unsafe_shell'],
+      blockedActions,
     };
   }
 
-  canRead(path: string): SandboxDecision {
-    if (!path.startsWith(this.config.workspaceRoot)) {
+  private isPathSafe(targetPath: string): boolean {
+    const relativePath = relative(this.config.workspaceRoot, targetPath);
+    return relativePath !== '' && !relativePath.startsWith('..') && !isAbsolute(relativePath);
+  }
+
+  canRead(targetPath: string): SandboxDecision {
+    if (targetPath !== this.config.workspaceRoot && !this.isPathSafe(targetPath)) {
       return { allowed: false, reason: 'path is outside sandbox workspace root' };
     }
     return { allowed: true };
@@ -30,8 +41,8 @@ export class SandboxPolicy {
     return { allowed: true };
   }
 
-  canWrite(path: string): SandboxDecision {
-    if (!path.startsWith(this.config.workspaceRoot)) {
+  canWrite(targetPath: string): SandboxDecision {
+    if (targetPath !== this.config.workspaceRoot && !this.isPathSafe(targetPath)) {
       return { allowed: false, reason: 'path is outside sandbox workspace root' };
     }
 
@@ -42,8 +53,16 @@ export class SandboxPolicy {
     return { allowed: true };
   }
 
-  canDelete(): SandboxDecision {
-    return { allowed: false, reason: 'delete operations require explicit host approval' };
+  canDelete(targetPath: string): SandboxDecision {
+    if (targetPath !== this.config.workspaceRoot && !this.isPathSafe(targetPath)) {
+      return { allowed: false, reason: 'path is outside sandbox workspace root' };
+    }
+
+    if (!this.config.allowDeletes) {
+      return { allowed: false, reason: 'delete operations require explicit host approval' };
+    }
+
+    return { allowed: true };
   }
 
   canUseNetwork(): SandboxDecision {
