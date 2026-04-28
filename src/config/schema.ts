@@ -22,6 +22,7 @@ export const sandboxConfigSchema = z.object({
   workspaceRoot: z.string().default(process.cwd()),
   allowNetwork: z.boolean().default(false),
   allowPersistentWrites: z.boolean().default(false),
+  allowDeletes: z.boolean().default(false),
   maxExecutionMs: z.coerce.number().int().positive().default(10_000),
 });
 
